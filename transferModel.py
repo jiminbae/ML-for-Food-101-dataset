@@ -52,7 +52,7 @@ print(model)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-epochs = 5
+epochs = 20
 
 print("Start Training")
 for epoch in range(epochs):
@@ -93,6 +93,5 @@ with torch.no_grad():
 accuracy = 100 * correct / total
 print(f'transferModel Test Accuracy: {accuracy:.2f}%')
 
-# 모델 저장
 torch.save(model.state_dict(), 'transferModel.pth')
 print("Model saved.")
