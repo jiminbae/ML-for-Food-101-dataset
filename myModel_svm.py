@@ -7,7 +7,8 @@ from tqdm import tqdm
 import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-import joblib 
+import joblib
+import os
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"current device: {device}")
@@ -125,5 +126,6 @@ acc = accuracy_score(y_test, y_pred)
 
 print(f"SVM accuracy with myModel features: {acc * 100:.2f}%")
 
-joblib.dump(svm_clf, 'mymodel_svm.pkl')
-print("SVM Model saved.")
+os.makedirs('models', exist_ok=True)
+joblib.dump(svm_clf, 'models/mymodel_svm.pkl')
+print("SVM Model saved to 'models/' directory")

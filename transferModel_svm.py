@@ -10,6 +10,7 @@ from sklearn.svm import LinearSVC
 from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 import joblib
+import os
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Current device: {device}")
@@ -36,26 +37,21 @@ test_transform = transforms.Compose([
 print("Preparing dataset...")
 train_dataset = torchvision.datasets.Food101(root='./data', split='train', download=True, transform=train_transform)
 test_dataset = torchvision.datasets.Food101(root='./data', split='test', download=True, transform=test_transform)
-
 train_dataset_clean = torchvision.datasets.Food101(root='./data', split='train', download=True, transform=test_transform)
 
 batch_size = 128 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-
 svm_train_loader = DataLoader(train_dataset_clean, batch_size=batch_size, shuffle=False, num_workers=4)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
 
 # CNN Fine-Tuning
 model = efficientnet_b0(weights=weights)
-
 in_features = model.classifier[1].in_features
-model.classifier[1] = nn.Linear(in_features, 101) # 101 classes
-
+model.classifier[1] = nn.Linear(in_features, 101)
 model = model.to(device)
 
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
-
 epochs = 20
 
 print(f"Start CNN Fine-Tuning ({epochs} epochs)...")
@@ -64,16 +60,13 @@ for epoch in range(epochs):
     model.train()
     running_loss = 0.0
     
-    # Train
-    for i, (inputs, labels) in enumerate(train_loader):
+    for i, (inputs, labels) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}")):
         inputs, labels = inputs.to(device), labels.to(device)
-
         optimizer.zero_grad()
         outputs = model(inputs)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
-
         running_loss += loss.item()
     
     # Validation
@@ -91,7 +84,7 @@ for epoch in range(epochs):
     epoch_acc = 100 * correct / total
     print(f"[Epoch {epoch + 1}/{epochs}] Loss: {running_loss / len(train_loader):.4f} | Acc: {epoch_acc:.2f}%")
 
-# defining Feature Extractor 
+# Feature Extractor
 class EffNetFeatureExtractor(nn.Module):
     def __init__(self, original_model):
         super(EffNetFeatureExtractor, self).__init__()
@@ -101,25 +94,21 @@ class EffNetFeatureExtractor(nn.Module):
         
     def forward(self, x):
         x = self.features(x)
-        x = self.avgpool(x) # (Batch, 1280, 1, 1)
-        x = self.flatten(x) # (Batch, 1280)
+        x = self.avgpool(x)
+        x = self.flatten(x)
         return x
 
 feature_extractor = EffNetFeatureExtractor(model).to(device)
 feature_extractor.eval()
 
-# CNN -> CPU Numpy
 def get_features(dataloader, model, device):
     features_list = []
     labels_list = []
     
-    print("Extracting features...")
     with torch.no_grad():
-        for images, labels in tqdm(dataloader):
+        for images, labels in tqdm(dataloader, desc="Extracting features"):
             images = images.to(device)
-            
             outputs = model(images)
-            
             features_list.append(outputs.cpu().numpy())
             labels_list.append(labels.numpy())
             
@@ -127,7 +116,7 @@ def get_features(dataloader, model, device):
     y = np.concatenate(labels_list, axis=0)
     return X, y
 
-print("Processing Train Data for SVM (Clean Images)...")
+print("Processing Train Data for SVM...")
 X_train, y_train = get_features(svm_train_loader, feature_extractor, device)
 
 print("Processing Test Data for SVM...")
@@ -135,19 +124,20 @@ X_test, y_test = get_features(test_loader, feature_extractor, device)
 
 print(f"Extracted Features Shape: {X_train.shape}")
 
-# SVM 학습
+# Train SVM
 print("Training SVM Classifier...")
-
 svm_clf = LinearSVC(max_iter=1000, C=1.0, verbose=1, dual=False) 
 svm_clf.fit(X_train, y_train)
 
-# evaluation
+# Evaluation
 print("Evaluating SVM...")
 y_pred = svm_clf.predict(X_test)
 acc = accuracy_score(y_test, y_pred)
 
 print(f"EfficientNet + SVM Model Test Accuracy: {acc * 100:.2f}%")
 
-joblib.dump(svm_clf, 'transferModel_svm.pkl')
-torch.save(model.state_dict(), 'transferModel_svm_classifier.pth') 
-print("Model saved")
+# Save models
+os.makedirs('models', exist_ok=True)
+joblib.dump(svm_clf, 'models/transferModel_svm.pkl')
+torch.save(model.state_dict(), 'models/transferModel_svm_classifier.pth') 
+print("Models saved to 'models/' directory")
