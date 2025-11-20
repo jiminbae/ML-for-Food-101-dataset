@@ -3,17 +3,13 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
+import numpy as np
+import os
+import matplotlib.pyplot as plt
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"current device: {device}")
-
-if device.type == 'cuda':
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
-
-# Data Augmentation & Normalization
 train_transform = transforms.Compose([
-    transforms.Resize((128, 128)),
+    transforms.Resize((224, 224)),  
     transforms.RandomHorizontalFlip(p=0.5),
     transforms.RandomRotation(15),
     transforms.ColorJitter(brightness=0.2, contrast=0.2),      
@@ -22,64 +18,31 @@ train_transform = transforms.Compose([
 ])
 
 test_transform = transforms.Compose([
-    transforms.Resize((128, 128)),      
+    transforms.Resize((224, 224)),  
     transforms.ToTensor(),              
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 ])
 
-print("preparing dataset")
-train_dataset = torchvision.datasets.Food101(root='./data', split='train', download=True, transform=train_transform)
-test_dataset = torchvision.datasets.Food101(root='./data', split='test', download=True, transform=test_transform)
-
-
-batch_size = 128
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-
-# my model
+# myModel 정의
 class myModel(nn.Module):
     def __init__(self):
         super(myModel, self).__init__()
-        # Feature Extractor
         self.features = nn.Sequential(
-            # Conv Block 1
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2), # 128 -> 64
-
-            # Conv Block 2
+            nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2, 2),
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2), # 64 -> 32
-
-            # Conv Block 3
+            nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2, 2),
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2)  # 32 -> 16
-            
-            # Conv Block 4
+            nn.BatchNorm2d(256), nn.ReLU(), nn.MaxPool2d(2, 2),
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            
-            # Conv Block 5
+            nn.BatchNorm2d(512), nn.ReLU(), nn.MaxPool2d(2, 2),
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
+            nn.BatchNorm2d(512), nn.ReLU(), nn.MaxPool2d(2, 2)
         )
-        
-        # Classifier
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1)) 
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(512 * 4 * 4, 1024),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(1024, 512),
+            nn.Linear(512, 512),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(512, 101)
@@ -87,64 +50,153 @@ class myModel(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
+        x = self.avgpool(x)
         x = self.classifier(x)
         return x
 
-model = myModel().to(device)
-print(model)
+if __name__ == "__main__":
+    # 디바이스 설정
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Device: {device}")
+    if device.type == 'cuda':
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-# loss function
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+    if not os.path.exists('./data'):
+        os.makedirs('./data')
 
-# Training Loop
-epochs = 40
+    # 데이터셋 로드
+    full_train_dataset = torchvision.datasets.Food101(root='./data', split='train', download=True, transform=train_transform)
+    full_test_dataset = torchvision.datasets.Food101(root='./data', split='test', download=True, transform=test_transform)
 
-print('Start Training')
-
-for epoch in range(epochs):
-    model.train()
-    running_loss = 0.0
+    # 검증용 데이터셋 분리 (20%)
+    num_test = len(full_test_dataset)
+    indices = list(range(num_test))
+    np.random.shuffle(indices) 
+    split = int(np.floor(0.2 * num_test)) 
     
-    for i, (inputs, labels) in enumerate(train_loader):
-        inputs, labels = inputs.to(device), labels.to(device)
-
-        optimizer.zero_grad()
-
-        # forward
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
-
-        # back propagation
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item()
-        
-        if i % 100 == 99: # 100 배치마다 로그 출력
-            print(f"[Epoch {epoch + 1}, Batch {i + 1}] Loss: {running_loss / 100:.3f}")
-            running_loss = 0.0
-
-# evaluation
-
-correct = 0
-total = 0
-
-model.eval()
-
-with torch.no_grad():
-    for images, labels in test_loader:
-        images, labels = images.to(device), labels.to(device)
+    mini_val_dataset = Subset(full_test_dataset, indices[:split])
     
-        outputs = model(images)
-        _, predicted = torch.max(outputs.data, 1)
+    print(f"전체 테스트 데이터: {num_test}장")
+    print(f"학습 중 검증 데이터: {len(mini_val_dataset)}장 (속도를 위해 20%만 사용)")
+    
+    # DataLoader
+    batch_size = 112
+    
+    train_loader = DataLoader(full_train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+    valid_loader = DataLoader(mini_val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    full_test_loader = DataLoader(full_test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+
+    model = myModel().to(device)
+
+
+    print("\n" + "="*60)
+    print(f"          [ Model Architecture: {model.__class__.__name__} ]")
+    print("="*60)
+    print(model) 
+    print("="*60 + "\n")
+
+    # 설정
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    scaler = torch.cuda.amp.GradScaler()
+    
+    epochs = 40
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=0.00001)
+
+    best_acc = 0.0
+    train_losses = []
+    val_accuracies = [] 
+
+    print(f"Start Training for {epochs} epochs (with AMP)...")
+
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
         
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+        for i, (inputs, labels) in enumerate(train_loader):
+            inputs, labels = inputs.to(device), labels.to(device)
+            optimizer.zero_grad()
 
-accuracy = 100 * correct / total
-print(f'전체 테스트 데이터셋에 대한 정확도: {accuracy:.2f}%')
+            with torch.cuda.amp.autocast():
+                outputs = model(inputs)
+                loss = criterion(outputs, labels)
+            
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
-# 6. 모델 저장 (선택 사항)
-torch.save(model.state_dict(), 'myModel.pth')
-print("model saved.")
+            running_loss += loss.item()
+        
+        train_loss = running_loss / len(train_loader)
+        
+        # Mini-Validation
+        model.eval()
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for images, labels in valid_loader: 
+                images, labels = images.to(device), labels.to(device)
+                outputs = model(images)
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+        mini_val_acc = 100 * correct / total
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        print(f"[Epoch {epoch+1}] Loss: {train_loss:.4f} | Mini-Val Acc: {mini_val_acc:.2f}% | LR: {current_lr:.1e}")
+
+        train_losses.append(train_loss)
+        val_accuracies.append(mini_val_acc)
+
+        if mini_val_acc > best_acc:
+            best_acc = mini_val_acc
+            torch.save(model.state_dict(), 'myModel.pth')
+            print(f"  --> Best Model Saved ({best_acc:.2f}%)")
+        
+        scheduler.step()
+
+    print("-" * 60)
+    print("학습 종료! 이제 전체 데이터로 최종 성적을 확인합니다...")
+
+    # Full Evaluation
+    model.load_state_dict(torch.load('myModel.pth'))
+    model.eval()
+    
+    correct = 0
+    total = 0
+    print("Final Evaluating (This may take a while)...")
+    
+    with torch.no_grad():
+        for images, labels in full_test_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            
+    final_acc = 100 * correct / total
+    print(f"최종 전체 테스트 정확도: {final_acc:.2f}%")
+
+    plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(range(1, epochs + 1), train_losses, label='Train Loss', color='red')
+    plt.title('Training Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.grid(True)
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(range(1, epochs + 1), val_accuracies, label='Mini-Val Acc', color='blue')
+    plt.title('Validation Accuracy (20% subset)')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy (%)')
+    plt.grid(True)
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig('training_result_graph.png')
+    print("Graph saved as 'training_result_graph.png'")
+    
+    plt.show()

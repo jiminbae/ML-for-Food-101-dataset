@@ -1,0 +1,7 @@
+# Ignore dataset folder only
+/data
+
+# Common ignores
+__pycache__/
+*.pyc
+.vscode/
