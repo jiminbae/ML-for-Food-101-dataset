@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader, Subset
 import numpy as np
 import os
 import matplotlib.pyplot as plt
+import time
 
 train_transform = transforms.Compose([
     transforms.Resize((224, 224)),  
@@ -80,7 +81,7 @@ if __name__ == "__main__":
     print(f"학습 중 검증 데이터: {len(mini_val_dataset)}장 (속도를 위해 20%만 사용)")
     
     # DataLoader
-    batch_size = 112
+    batch_size = 160
     
     train_loader = DataLoader(full_train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     valid_loader = DataLoader(mini_val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
@@ -98,9 +99,9 @@ if __name__ == "__main__":
     # 설정
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler('cuda')
     
-    epochs = 40
+    epochs = 50
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=0.00001)
 
     best_acc = 0.0
@@ -108,8 +109,10 @@ if __name__ == "__main__":
     val_accuracies = [] 
 
     print(f"Start Training for {epochs} epochs (with AMP)...")
+    start_time = time.time()
 
     for epoch in range(epochs):
+        epoch_start_time = time.time()
         model.train()
         running_loss = 0.0
         
@@ -117,7 +120,7 @@ if __name__ == "__main__":
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
 
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
             
@@ -143,8 +146,13 @@ if __name__ == "__main__":
 
         mini_val_acc = 100 * correct / total
         current_lr = optimizer.param_groups[0]['lr']
+
+        epoch_duration = time.time() - epoch_start_time
+        epoch_mins = int(epoch_duration // 60)
+        epoch_secs = int(epoch_duration % 60)
+
         
-        print(f"[Epoch {epoch+1}] Loss: {train_loss:.4f} | Mini-Val Acc: {mini_val_acc:.2f}% | LR: {current_lr:.1e}")
+        print(f"[Epoch {epoch+1}/{epochs}] Time: {epoch_mins}m {epoch_secs}s | Loss: {train_loss:.4f} | Mini-Val Acc: {mini_val_acc:.2f}% | LR: {current_lr:.1e}")
 
         train_losses.append(train_loss)
         val_accuracies.append(mini_val_acc)
@@ -156,8 +164,13 @@ if __name__ == "__main__":
         
         scheduler.step()
 
+    total_duration = time.time() - start_time
+    total_mins = int(total_duration // 60)
+    total_secs = int(total_duration % 60)
     print("-" * 60)
-    print("학습 종료! 이제 전체 데이터로 최종 성적을 확인합니다...")
+    print(f"학습 종료. 총 소요 시간: {total_mins}분 {total_secs}초")
+    print(f"best accuracy(Mini-Val): {best_acc:.2f}%")
+    print("-" * 60)
 
     # Full Evaluation
     model.load_state_dict(torch.load('myModel.pth'))
@@ -176,7 +189,7 @@ if __name__ == "__main__":
             correct += (predicted == labels).sum().item()
             
     final_acc = 100 * correct / total
-    print(f"최종 전체 테스트 정확도: {final_acc:.2f}%")
+    print(f"Final Overall Test Accuracy: {final_acc:.2f}%")
 
     plt.figure(figsize=(12, 5))
     plt.subplot(1, 2, 1)
@@ -189,14 +202,14 @@ if __name__ == "__main__":
 
     plt.subplot(1, 2, 2)
     plt.plot(range(1, epochs + 1), val_accuracies, label='Mini-Val Acc', color='blue')
-    plt.title('Validation Accuracy (20% subset)')
+    plt.title('Validation Accuracy (subset 20%)')
     plt.xlabel('Epochs')
     plt.ylabel('Accuracy (%)')
     plt.grid(True)
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig('training_result_graph.png')
-    print("Graph saved as 'training_result_graph.png'")
+    plt.savefig('myModel_result_graph.png')
+    print("Graph saved as 'myModel_result_graph.png'")
     
     plt.show()

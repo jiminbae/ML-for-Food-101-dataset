@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader, Subset
 import numpy as np
 import os
 import matplotlib.pyplot as plt
+import time
 
 train_transform = transforms.Compose([
     transforms.Resize((224, 224)), 
@@ -75,7 +76,7 @@ if __name__ == "__main__":
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler('cuda')
     
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
@@ -88,7 +89,10 @@ if __name__ == "__main__":
     print(f"Start Training for {epochs} epochs (with AMP)...")
     print("-" * 60)
 
+    start_time = time.time()
+
     for epoch in range(epochs):
+        epoch_start_time = time.time()
         model.train()
         running_loss = 0.0
         
@@ -97,7 +101,7 @@ if __name__ == "__main__":
 
             optimizer.zero_grad()
 
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
 
@@ -124,8 +128,12 @@ if __name__ == "__main__":
 
         mini_val_acc = 100 * correct / total
         current_lr = optimizer.param_groups[0]['lr']
+
+        epoch_duration = time.time() - epoch_start_time
+        epoch_mins = int(epoch_duration // 60)
+        epoch_secs = int(epoch_duration % 60)
         
-        print(f"[Epoch {epoch + 1}/{epochs}] Loss: {train_loss:.4f} | Mini-Val Acc: {mini_val_acc:.2f}% | LR: {current_lr:.1e}")
+        print(f"[Epoch {epoch + 1}/{epochs}] Time: {epoch_mins}m {epoch_secs}s | Loss: {train_loss:.4f} | Mini-Val Acc: {mini_val_acc:.2f}% | LR: {current_lr:.1e}")
 
         train_losses.append(train_loss)
         val_accuracies.append(mini_val_acc)
@@ -137,8 +145,13 @@ if __name__ == "__main__":
         
         scheduler.step()
 
+        total_duration = time.time() - start_time
+        total_mins = int(total_duration // 60)
+        total_secs = int(total_duration % 60)
+
     print("-" * 60)
-    print("학습 종료! 전체 데이터로 최종 성적을 확인합니다...")
+    print(f"학습 종료. 총 소요 시간: {total_mins}분 {total_secs}초")
+    print(f"best accuracy(Mini-Val): {best_acc:.2f}%")
 
     # Full Evaluation
     model.load_state_dict(torch.load('transferModel.pth'))
@@ -180,7 +193,7 @@ if __name__ == "__main__":
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig('transfer_learning_result.png')
-    print("Graph saved as 'transfer_learning_result.png'")
+    plt.savefig('transferModel_result_graph.png')
+    print("Graph saved as 'transferModel_result_graph.png'")
     
     plt.show()

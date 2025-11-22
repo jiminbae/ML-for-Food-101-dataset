@@ -11,6 +11,7 @@ import joblib
 import os
 import matplotlib.pyplot as plt 
 import seaborn as sns 
+import time
 
 # myModel
 class myModel(nn.Module):
@@ -70,10 +71,9 @@ def get_features(dataloader, model, device):
     y = np.concatenate(labels_list, axis=0)
     return X, y
 
-
-# 메인 실행 블록
-
 if __name__ == "__main__":
+    start_time = time.time()
+
     # 디바이스 설정
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Current device: {device}")
@@ -83,10 +83,10 @@ if __name__ == "__main__":
     model = myModel().to(device)
 
     try:
-        model.load_state_dict(torch.load('models/myModel_best.pth')) 
-        print("✅ myModel weights loaded successfully.")
+        model.load_state_dict(torch.load('models/myModel.pth')) 
+        print("myModel weights loaded successfully.")
     except FileNotFoundError:
-        print("'models/myModel_best.pth' not found.")
+        print("'models/myModel.pth' not found.")
 
     print("\n" + "="*60)
     print("               [ Model Architecture Summary ]               ")
@@ -94,11 +94,10 @@ if __name__ == "__main__":
     print(model) 
     print("="*60 + "\n")
 
-    # 특징 추출기 준비
     feature_extractor = FeatureExtractor(model).to(device)
     feature_extractor.eval()
 
-    # 데이터셋 준비 (SVM용 Clean Data)
+    # SVM용 Clean Data
     test_transform = transforms.Compose([
         transforms.Resize((128, 128)),
         transforms.ToTensor(),
@@ -133,6 +132,13 @@ if __name__ == "__main__":
     acc = accuracy_score(y_test, y_pred)
 
     print(f"SVM accuracy with myModel features: {acc * 100:.2f}%")
+
+    total_duration = time.time() - start_time
+    total_mins = int(total_duration // 60)
+    total_secs = int(total_duration % 60)
+    print("-" * 60)
+    print(f"학습 완료. 총 소요 시간: {total_mins}분 {total_secs}초")
+    print("-" * 60)
 
     os.makedirs('models', exist_ok=True)
     joblib.dump(svm_clf, 'models/mymodel_svm.pkl')
@@ -181,5 +187,5 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.show()
-    plt.savefig('svm_result_analysis.png')
-    print("Graphs saved as 'svm_result_analysis.png'")
+    plt.savefig('myModel_svm_result_graph.png')
+    print("Graphs saved as 'myModel_svm_result_graph.png'")
