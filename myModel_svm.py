@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from sklearn.svm import LinearSVC
 from sklearn.metrics import accuracy_score, confusion_matrix
 from tqdm import tqdm 
 import torchvision
@@ -12,6 +11,10 @@ import os
 import matplotlib.pyplot as plt 
 import seaborn as sns 
 import time
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import SGDClassifier
+
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 # myModel
 class myModel(nn.Module):
@@ -29,17 +32,19 @@ class myModel(nn.Module):
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
             nn.BatchNorm2d(512), nn.ReLU(), nn.MaxPool2d(2, 2)
         )
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1)) 
+        
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(512 * 4 * 4, 1024),
-            nn.ReLU(), nn.Dropout(0.5),
-            nn.Linear(1024, 512),
-            nn.ReLU(), nn.Dropout(0.5),
+            nn.Linear(512, 512), 
+            nn.ReLU(),
+            nn.Dropout(0.5),
             nn.Linear(512, 101)
         )
 
     def forward(self, x):
         x = self.features(x)
+        x = self.avgpool(x)
         x = self.classifier(x)
         return x
 
@@ -48,10 +53,12 @@ class FeatureExtractor(nn.Module):
     def __init__(self, original_model):
         super(FeatureExtractor, self).__init__()
         self.features = original_model.features 
+        self.avgpool = original_model.avgpool
         self.flatten = nn.Flatten()
         
     def forward(self, x):
         x = self.features(x)
+        x = self.avgpool(x)
         x = self.flatten(x)
         return x
 
@@ -83,7 +90,7 @@ if __name__ == "__main__":
     model = myModel().to(device)
 
     try:
-        model.load_state_dict(torch.load('models/myModel.pth')) 
+        model.load_state_dict(torch.load('myModel.pth')) 
         print("myModel weights loaded successfully.")
     except FileNotFoundError:
         print("'models/myModel.pth' not found.")
@@ -122,13 +129,17 @@ if __name__ == "__main__":
 
     print(f"Extracted Features Shape: {X_train.shape}") 
 
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
     print("Training SVM Classifier...")
-    svm_clf = LinearSVC(max_iter=3000, C=0.1, verbose=1, dual=False) 
-    svm_clf.fit(X_train, y_train)
+    svm_clf = SGDClassifier(loss='hinge', max_iter=1000, tol=1e-3, n_jobs=-1, verbose=0, random_state=42)
+    svm_clf.fit(X_train_scaled, y_train)
 
     # evaluate SVM
-    print("Evaluating SVM...")
-    y_pred = svm_clf.predict(X_test)
+    print("Evaluating SVM(with SGD)...")
+    y_pred = svm_clf.predict(X_test_scaled)
     acc = accuracy_score(y_test, y_pred)
 
     print(f"SVM accuracy with myModel features: {acc * 100:.2f}%")
@@ -141,8 +152,8 @@ if __name__ == "__main__":
     print("-" * 60)
 
     os.makedirs('models', exist_ok=True)
-    joblib.dump(svm_clf, 'models/mymodel_svm.pkl')
-    print("SVM Model saved to 'models/mymodel_svm.pkl'")
+    joblib.dump(svm_clf, 'mymodel_svm.pkl')
+    print("SVM Model saved to 'mymodel_svm.pkl'")
 
     # Result Analysis
     print("Generating Result Plots...")
@@ -186,6 +197,8 @@ if __name__ == "__main__":
                  f'{scores[i]*100:.1f}%', va='center')
 
     plt.tight_layout()
+    
+    plt.savefig('myModel_svm_eval.png')
+    print("Graphs saved as 'myModel_svm_eval.png'")
+
     plt.show()
-    plt.savefig('myModel_svm_result_graph.png')
-    print("Graphs saved as 'myModel_svm_result_graph.png'")
