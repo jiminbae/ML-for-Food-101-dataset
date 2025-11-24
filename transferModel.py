@@ -10,6 +10,8 @@ import os
 import matplotlib.pyplot as plt
 import time
 
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
 train_transform = transforms.Compose([
     transforms.Resize((224, 224)), 
     transforms.RandomHorizontalFlip(p=0.5),
@@ -80,7 +82,7 @@ if __name__ == "__main__":
     
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
-    epochs = 20
+    epochs = 10
     best_acc = 0.0 
 
     train_losses = []
@@ -193,7 +195,7 @@ if __name__ == "__main__":
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig('transferModel_result_graph.png')
-    print("Graph saved as 'transferModel_result_graph.png'")
+    plt.savefig('transferModel_eval.png')
+    print("Graph saved as 'transferModel_eval.png'")
     
     plt.show()

@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from sklearn.svm import LinearSVC
 from sklearn.metrics import accuracy_score, confusion_matrix
 from tqdm import tqdm
 import joblib
@@ -13,17 +12,21 @@ import torchvision.transforms as transforms
 from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
 from torch.utils.data import DataLoader
 import time 
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import SGDClassifier
 
-# 디바이스 설정
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Current device: {device}")
-if device.type == 'cuda':
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
-if not os.path.exists('./models'):
-    os.makedirs('./models')
 
 if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Current device: {device}")
+    if device.type == 'cuda':
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
+
+    if not os.path.exists('./models'):
+        os.makedirs('./models')
+
     start_time = time.time()
 
     print("\nLoading Pre-trained EfficientNet...")
@@ -43,6 +46,15 @@ if __name__ == "__main__":
         print("'transferModel.pth' file not found. Please check the path.")
         exit()
 
+    print("\n" + "="*60)
+    print(f"          [ Model Architecture: EfficientNet-B0 ]")
+    print("="*60)
+    # 전체 구조는 너무 길어서 Classifier 부분만 출력 (필요하면 print(model)로 변경)
+    print(model.classifier)
+    print("-" * 60)
+    print("(Note: Full architecture print hidden to save space)")
+    print("="*60 + "\n")
+
     # Feature Extractor 정의
     class EffNetFeatureExtractor(nn.Module):
         def __init__(self, original_model):
@@ -50,7 +62,7 @@ if __name__ == "__main__":
             self.features = original_model.features
             self.avgpool = original_model.avgpool 
             self.flatten = nn.Flatten()
-            
+                
         def forward(self, x):
             x = self.features(x)
             x = self.avgpool(x)
@@ -82,7 +94,7 @@ if __name__ == "__main__":
     def get_features(dataloader, model, device):
         features_list = []
         labels_list = []
-        
+            
         print("Extracting features...")
         with torch.no_grad():
             for images, labels in tqdm(dataloader):
@@ -90,7 +102,7 @@ if __name__ == "__main__":
                 outputs = model(images)
                 features_list.append(outputs.cpu().numpy())
                 labels_list.append(labels.numpy())
-                
+                    
         return np.concatenate(features_list, axis=0), np.concatenate(labels_list, axis=0)
 
     print("\nTraining SVM Classifier...")
@@ -103,19 +115,23 @@ if __name__ == "__main__":
 
     print(f"Extracted Features Shape: {X_train.shape}")
 
-    print("Training LinearSVC...")
-    svm_clf = LinearSVC(max_iter=3000, C=1.0, verbose=1, dual=False) 
-    svm_clf.fit(X_train, y_train)
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    print("Training SVM Classifier (with SGD)...")
+    svm_clf = SGDClassifier(loss='hinge', max_iter=3000, tol=1e-3, n_jobs=-1, verbose=0, random_state=42)
+    svm_clf.fit(X_train_scaled, y_train)
 
     # evaluation
     print("Evaluating SVM...")
-    y_pred = svm_clf.predict(X_test)
+    y_pred = svm_clf.predict(X_test_scaled)
     acc = accuracy_score(y_test, y_pred)
 
     print(f"EfficientNet + SVM Test Accuracy: {acc * 100:.2f}%")
 
-    joblib.dump(svm_clf, 'models/transferModel_svm.pkl')
-    print("SVM Model saved to 'models/transferModel_svm.pkl'")
+    joblib.dump(svm_clf, 'transferModel_svm.pkl')
+    print("SVM Model saved to 'transferModel_svm.pkl'")
 
     total_duration = time.time() - start_time
     total_mins = int(total_duration // 60)
@@ -162,10 +178,10 @@ if __name__ == "__main__":
 
     for i, bar in enumerate(bars):
         plt.text(bar.get_width() + 0.01, bar.get_y() + bar.get_height()/2, 
-                 f'{scores[i]*100:.1f}%', va='center')
+                   f'{scores[i]*100:.1f}%', va='center')
 
     plt.tight_layout()
-    plt.savefig('transferModel_svm_result_graph.png')
-    print("Graph saved as 'transferModel_svm_result_graph.png'")
+    plt.savefig('transferModel_svm_eval.png')
+    print("Graph saved as 'transferModel_svm_eval.png'")
 
     plt.show()

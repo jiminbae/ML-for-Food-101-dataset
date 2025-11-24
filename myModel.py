@@ -9,6 +9,8 @@ import os
 import matplotlib.pyplot as plt
 import time
 
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
 train_transform = transforms.Compose([
     transforms.Resize((224, 224)),  
     transforms.RandomHorizontalFlip(p=0.5),
